@@ -1,0 +1,851 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0D0F14" />
+  <link rel="manifest" href="manifest.json" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Ather Log" />
+  <title>Ather Log</title>
+  <!-- standalone build v2 -->
+
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20fill='%230D0F14'/%3E%3Cpath%20d='M18%204%208%2018h6l-2%2010L22%2014h-6z'%20fill='%2300E5A0'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Libraries from CDN — no build step needed -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.8.1/prop-types.min.js"></script>
+  <script src="https://unpkg.com/recharts@2.15.3/umd/Recharts.js"></script>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.4/babel.min.js"></script>
+
+  <style>
+    :root { color-scheme: dark; }
+    html, body { background: #0d0f14; margin: 0; }
+    body {
+      font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: #e6eaf0;
+      -webkit-font-smoothing: antialiased;
+    }
+    /* data-terminal aesthetic: no rounded corners anywhere */
+    * { border-radius: 0 !important; }
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+    input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.65); cursor: pointer; }
+    #root:empty::after {
+      content: "LOADING…";
+      display: block; padding: 40px; text-align: center;
+      color: #8B93A7; font-size: 11px; letter-spacing: 0.25em;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script>
+    // PWA install support (no-op when opened as a local file)
+    if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("sw.js").catch(() => {});
+      });
+    }
+  </script>
+
+  <script type="text/babel" data-presets="react">
+    const { useEffect, useMemo, useState } = React;
+    const {
+      ResponsiveContainer, LineChart, Line, BarChart, Bar, Cell,
+      XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceDot,
+    } = Recharts;
+
+    /* ================= theme ================= */
+    const C = {
+      bg: "#0D0F14", card: "#161A22", grid: "#1E2530", border: "#232B38",
+      accent: "#00E5A0", text: "#E6EAF0", muted: "#8B93A7",
+      warn: "#FFB454", danger: "#FF6B81",
+    };
+    const MUTED_COLORS = ["#5B8DEF", "#B08AFF", "#FFB454", "#FF6B81", "#4DD0E1", "#8BC34A", "#F06292", "#A1887F"];
+
+    /* ================= storage ================= */
+    const LS_CHARGE = "atherlog_charging";
+    const LS_DISCHARGE = "atherlog_discharging";
+    const LS_SEEDED = "atherlog_seeded_v2";
+
+    const SEED_CHARGING = [
+      {
+        id: "seed-charge-1",
+        date: "2026-07-16",
+        entries: [
+          [0, 10], [30, 19], [56, 25], [87, 36], [127, 50], [150, 56], [164, 61],
+          [190, 68], [201, 72], [215, 75], [244, 84], [277, 90], [287, 94],
+        ].map(([t, p]) => ({ time_min: t, percentage: p })),
+      },
+      {
+        id: "seed-charge-2",
+        date: "2026-07-16",
+        entries: [
+          [0, 61], [25, 68], [70, 81], [95, 89], [137, 100],
+        ].map(([t, p]) => ({ time_min: t, percentage: p })),
+      },
+      {
+        id: "seed-charge-3",
+        date: "2026-07-17",
+        entries: [
+          [0, 41], [33, 51], [78, 64],
+        ].map(([t, p]) => ({ time_min: t, percentage: p })),
+      },
+    ];
+
+    const SEED_DISCHARGING = [
+      {
+        id: "seed-discharge-1",
+        date: "2026-07-17",
+        entries: [
+          [0, 94], [27, 75], [47.4, 61],
+        ].map(([d, p]) => ({ distance_km: d, percentage: p })),
+      },
+      {
+        id: "seed-discharge-2",
+        date: "2026-07-18",
+        entries: [
+          [0, 99], [28, 76], [47.8, 59], [74.4, 41],
+        ].map(([d, p]) => ({ distance_km: d, percentage: p })),
+      },
+    ];
+
+    function seedIfNeeded() {
+      try {
+        if (localStorage.getItem(LS_SEEDED)) return;
+        // load new seed set; replace any old seed-* sessions but keep user-logged ones
+        const merge = (key, seed) => {
+          const user = loadStore(key).filter((s) => !String(s.id).startsWith("seed-"));
+          localStorage.setItem(key, JSON.stringify([...seed, ...user]));
+        };
+        merge(LS_CHARGE, SEED_CHARGING);
+        merge(LS_DISCHARGE, SEED_DISCHARGING);
+        localStorage.setItem(LS_SEEDED, "1");
+      } catch (e) { /* localStorage unavailable */ }
+    }
+
+    function loadStore(key) {
+      try {
+        const raw = localStorage.getItem(key);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (e) { return []; }
+    }
+
+    function saveStore(key, value) {
+      try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* ignore */ }
+    }
+
+    const uid = () =>
+      (window.crypto && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
+    /* ================= helpers / metrics ================= */
+    const fmtDate = (iso) => {
+      const [y, m, d] = (iso || "").split("-");
+      return y && m && d ? `${d}-${m}-${y}` : iso;
+    };
+
+    const todayISO = () => {
+      const d = new Date();
+      const p = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    };
+
+    const fmt = (n, digits = 1) =>
+      n === null || n === undefined || !isFinite(n) ? "—" : Number(n).toFixed(digits);
+
+    const sortByDate = (list) => [...list].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+    function labelSessions(sorted) {
+      const totals = {};
+      sorted.forEach((s) => (totals[s.date] = (totals[s.date] || 0) + 1));
+      const counts = {};
+      return sorted.map((s) => {
+        counts[s.date] = (counts[s.date] || 0) + 1;
+        const suffix = totals[s.date] > 1 ? ` · S${counts[s.date]}` : "";
+        return { ...s, label: `${fmtDate(s.date)}${suffix}` };
+      });
+    }
+
+    function chargeRatePerHr(s) {
+      const e = s.entries;
+      if (!e || e.length < 2) return null;
+      const dt = e[e.length - 1].time_min - e[0].time_min;
+      const dp = e[e.length - 1].percentage - e[0].percentage;
+      if (dt <= 0) return null;
+      return dp / (dt / 60);
+    }
+
+    function dischargeEfficiency(s) {
+      const e = s.entries;
+      if (!e || e.length < 2) return null;
+      const dd = e[e.length - 1].distance_km - e[0].distance_km;
+      const dp = e[0].percentage - e[e.length - 1].percentage;
+      if (dp <= 0 || dd <= 0) return null;
+      return dd / dp;
+    }
+
+    function linRegSlope(points) {
+      const n = points.length;
+      if (n < 2) return null;
+      const mx = points.reduce((a, p) => a + p.x, 0) / n;
+      const my = points.reduce((a, p) => a + p.y, 0) / n;
+      let sxy = 0, sxx = 0;
+      for (const p of points) {
+        sxy += (p.x - mx) * (p.y - my);
+        sxx += (p.x - mx) ** 2;
+      }
+      return sxx === 0 ? null : sxy / sxx;
+    }
+
+    function estimatedFullRange(discharging) {
+      const slopes = discharging
+        .map((s) => linRegSlope(s.entries.map((e) => ({ x: e.distance_km, y: e.percentage }))))
+        .filter((v) => v !== null && v < 0);
+      if (!slopes.length) return null;
+      const avg = slopes.reduce((a, b) => a + b, 0) / slopes.length;
+      return 100 / Math.abs(avg);
+    }
+
+    function detectKnee(s) {
+      const e = s.entries;
+      if (!e || e.length < 3) return null;
+      const first = e[0], last = e[e.length - 1];
+      for (let i = 1; i <= e.length - 2; i++) {
+        const dtB = e[i].time_min - first.time_min;
+        const dtA = last.time_min - e[i].time_min;
+        if (dtB <= 0 || dtA <= 0) continue;
+        const rateBefore = (e[i].percentage - first.percentage) / dtB;
+        const rateAfter = (last.percentage - e[i].percentage) / dtA;
+        if (rateBefore > 0 && rateAfter > 0 && rateAfter < 0.8 * rateBefore) return e[i];
+      }
+      return null;
+    }
+
+    const sessionColor = (idx, count) => (idx === count - 1 ? C.accent : MUTED_COLORS[idx % MUTED_COLORS.length]);
+
+    /* ================= shared UI ================= */
+    const tooltipStyle = {
+      contentStyle: {
+        background: C.card, border: `1px solid ${C.border}`,
+        fontSize: 12, fontFamily: "inherit", color: C.text,
+      },
+      labelStyle: { color: C.muted, fontSize: 11, marginBottom: 4 },
+      itemStyle: { padding: 0 },
+      cursor: { stroke: C.border, strokeWidth: 1 },
+    };
+
+    const axisProps = {
+      stroke: C.muted, tickLine: false, axisLine: false,
+      tick: { fill: C.muted, fontSize: 11 },
+    };
+
+    function Card({ title, sub, right, children, className = "" }) {
+      return (
+        <section className={`bg-[#161A22] border border-[#1E2530] ${className}`}>
+          {(title || right) && (
+            <header className="flex items-baseline justify-between gap-2 px-4 pt-4">
+              <div>
+                <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#E6EAF0]">{title}</h2>
+                {sub && <p className="mt-0.5 text-[10px] uppercase tracking-wider text-[#8B93A7]">{sub}</p>}
+              </div>
+              {right && <div className="text-[10px] uppercase tracking-wider text-[#8B93A7] text-right">{right}</div>}
+            </header>
+          )}
+          <div className="p-4">{children}</div>
+        </section>
+      );
+    }
+
+    function StatCard({ label, value, unit, sub }) {
+      return (
+        <div className="bg-[#161A22] border border-[#1E2530] p-4">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-[#8B93A7]">{label}</div>
+          <div className="mt-2 text-2xl font-semibold tabular-nums text-[#E6EAF0] leading-none">
+            {value}
+            {unit && <span className="ml-1 text-xs font-medium text-[#00E5A0]">{unit}</span>}
+          </div>
+          {sub && <div className="mt-2 text-[10px] uppercase tracking-wider text-[#8B93A7]">{sub}</div>}
+        </div>
+      );
+    }
+
+    function EmptyState({ message, cta, onCta }) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-4 border border-dashed border-[#232B38] py-14 px-4 text-center">
+          <p className="text-sm text-[#8B93A7]">{message}</p>
+          {cta && (
+            <button
+              onClick={onCta}
+              className="bg-[#00E5A0] px-4 py-2 text-xs font-semibold uppercase tracking-widest text-[#0D0F14] hover:bg-[#00C98D]"
+            >
+              {cta}
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    /* ================= charts ================= */
+    function CombinedChargingChart({ sessions }) {
+      const labeled = labelSessions(sessions);
+      const knees = labeled
+        .map((s, i) => ({ knee: detectKnee(s), color: sessionColor(i, labeled.length), label: s.label }))
+        .filter((k) => k.knee);
+      return (
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart margin={{ top: 16, right: 24, bottom: 4, left: -8 }}>
+            <CartesianGrid stroke={C.grid} />
+            <XAxis
+              {...axisProps}
+              dataKey="x"
+              type="number"
+              domain={[0, "dataMax"]}
+              label={{ value: "TIME (MIN)", position: "insideBottomRight", offset: -2, fill: C.muted, fontSize: 9 }}
+            />
+            <YAxis {...axisProps} domain={[0, 100]} width={36} unit="%" />
+            <Tooltip
+              {...tooltipStyle}
+              labelFormatter={(x) => `${x} min`}
+              formatter={(v, name) => [`${v}%`, name]}
+            />
+            <Legend wrapperStyle={{ fontSize: 11, color: C.muted }} iconType="plainline" iconSize={14} />
+            {labeled.map((s, i) => {
+              const color = sessionColor(i, labeled.length);
+              return (
+                <Line
+                  key={s.id}
+                  data={s.entries.map((e) => ({ x: e.time_min, y: e.percentage }))}
+                  dataKey="y"
+                  name={s.label}
+                  stroke={color}
+                  strokeWidth={2}
+                  dot={{ r: 2.5, fill: color, strokeWidth: 0 }}
+                  activeDot={{ r: 4, fill: color, strokeWidth: 0 }}
+                  isAnimationActive={false}
+                />
+              );
+            })}
+            {knees.map((k, i) => (
+              <ReferenceDot
+                key={i}
+                x={k.knee.time_min}
+                y={k.knee.percentage}
+                r={6}
+                fill="none"
+                stroke={C.accent}
+                strokeWidth={1.5}
+                label={{
+                  value: `KNEE ${k.knee.percentage}%`,
+                  position: "top",
+                  fill: C.accent,
+                  fontSize: 9,
+                  fontWeight: 600,
+                }}
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      );
+    }
+
+    function CombinedDischargeChart({ sessions }) {
+      const labeled = labelSessions(sessions);
+      return (
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart margin={{ top: 16, right: 24, bottom: 4, left: -8 }}>
+            <CartesianGrid stroke={C.grid} />
+            <XAxis
+              {...axisProps}
+              dataKey="x"
+              type="number"
+              domain={[0, "dataMax"]}
+              label={{ value: "DISTANCE (KM)", position: "insideBottomRight", offset: -2, fill: C.muted, fontSize: 9 }}
+            />
+            <YAxis {...axisProps} domain={[0, 100]} width={36} unit="%" />
+            <Tooltip
+              {...tooltipStyle}
+              labelFormatter={(x) => `${x} km`}
+              formatter={(v, name) => [`${v}%`, name]}
+            />
+            <Legend wrapperStyle={{ fontSize: 11, color: C.muted }} iconType="plainline" iconSize={14} />
+            {labeled.map((s, i) => {
+              const color = sessionColor(i, labeled.length);
+              const eff = dischargeEfficiency(s);
+              return (
+                <Line
+                  key={s.id}
+                  data={s.entries.map((e) => ({ x: e.distance_km, y: e.percentage }))}
+                  dataKey="y"
+                  name={`${s.label}  ·  ${fmt(eff, 2)} km/%`}
+                  stroke={color}
+                  strokeWidth={2}
+                  dot={{ r: 2.5, fill: color, strokeWidth: 0 }}
+                  activeDot={{ r: 4, fill: color, strokeWidth: 0 }}
+                  isAnimationActive={false}
+                />
+              );
+            })}
+          </LineChart>
+        </ResponsiveContainer>
+      );
+    }
+
+    function SessionBarChart({ data, unit, digits = 2 }) {
+      return (
+        <ResponsiveContainer width="100%" height={240}>
+          <BarChart data={data} margin={{ top: 8, right: 24, bottom: 4, left: -8 }}>
+            <CartesianGrid stroke={C.grid} vertical={false} />
+            <XAxis {...axisProps} dataKey="name" interval={0} />
+            <YAxis {...axisProps} width={36} />
+            <Tooltip {...tooltipStyle} cursor={{ fill: "#1E253055" }} formatter={(v) => [`${fmt(v, digits)} ${unit}`]} />
+            <Bar dataKey="value" maxBarSize={48} isAnimationActive={false}>
+              {data.map((d, i) => (
+                <Cell key={i} fill={i === data.length - 1 ? C.accent : "#3D4759"} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      );
+    }
+
+    function SessionDetailChart({ session, type }) {
+      const isCharge = type === "charge";
+      const data = session.entries.map((e) => ({
+        x: isCharge ? e.time_min : e.distance_km,
+        y: e.percentage,
+      }));
+      return (
+        <ResponsiveContainer width="100%" height={280}>
+          <LineChart data={data} margin={{ top: 16, right: 24, bottom: 4, left: -8 }}>
+            <CartesianGrid stroke={C.grid} />
+            <XAxis
+              {...axisProps}
+              dataKey="x"
+              type="number"
+              domain={[0, "dataMax"]}
+              label={{
+                value: isCharge ? "TIME (MIN)" : "DISTANCE (KM)",
+                position: "insideBottomRight",
+                offset: -2,
+                fill: C.muted,
+                fontSize: 9,
+              }}
+            />
+            <YAxis {...axisProps} domain={[0, 100]} width={36} unit="%" />
+            <Tooltip
+              {...tooltipStyle}
+              labelFormatter={(x) => (isCharge ? `${x} min` : `${x} km`)}
+              formatter={(v) => [`${v}%`, "SOC"]}
+            />
+            <Line
+              dataKey="y"
+              stroke={C.accent}
+              strokeWidth={2}
+              dot={{ r: 3, fill: C.accent, strokeWidth: 0 }}
+              activeDot={{ r: 5, fill: C.accent, strokeWidth: 0 }}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      );
+    }
+
+    /* ================= views ================= */
+    function Dashboard({ charging, discharging, go }) {
+      const chargeSorted = sortByDate(charging);
+      const dischargeSorted = sortByDate(discharging);
+
+      const totalSessions = charging.length + discharging.length;
+      const effs = dischargeSorted.map(dischargeEfficiency).filter((v) => v !== null);
+      const bestRange = effs.length ? Math.max(...effs) : null;
+      const rates = chargeSorted.map(chargeRatePerHr).filter((v) => v !== null);
+      const avgRate = rates.length ? rates.reduce((a, b) => a + b, 0) / rates.length : null;
+      const fullRange = estimatedFullRange(dischargeSorted);
+
+      const effBars = labelSessions(dischargeSorted).map((s) => ({
+        name: s.label,
+        value: dischargeEfficiency(s),
+      }));
+      const rateBars = labelSessions(chargeSorted).map((s) => ({
+        name: s.label,
+        value: chargeRatePerHr(s),
+      }));
+
+      return (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <StatCard
+              label="Total Sessions"
+              value={totalSessions}
+              sub={`${charging.length} charge · ${discharging.length} discharge`}
+            />
+            <StatCard label="Best Range" value={fmt(bestRange, 2)} unit="km/%" sub="best discharge efficiency" />
+            <StatCard label="Avg Charge Rate" value={fmt(avgRate, 1)} unit="%/hr" sub="mean across sessions" />
+            <StatCard label="Est. Full Range" value={fmt(fullRange, 1)} unit="km" sub="extrapolated 100% → 0%" />
+          </div>
+
+          <Card title="Combined Charging Graph" sub="SOC % vs time · all sessions" right="knee = rate drop >20%">
+            {chargeSorted.length ? (
+              <CombinedChargingChart sessions={chargeSorted} />
+            ) : (
+              <EmptyState message="No sessions yet — log your first charge" cta="Log Charge" onCta={() => go("charge")} />
+            )}
+          </Card>
+
+          <Card title="Combined Discharge Graph" sub="SOC % vs distance · efficiency slope in legend">
+            {dischargeSorted.length ? (
+              <CombinedDischargeChart sessions={dischargeSorted} />
+            ) : (
+              <EmptyState message="No sessions yet — log your first ride" cta="Log Discharge" onCta={() => go("discharge")} />
+            )}
+          </Card>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Card title="Efficiency Trend" sub="km per 1% battery · per discharge session">
+              {effBars.length ? (
+                <SessionBarChart data={effBars} unit="km/%" digits={2} />
+              ) : (
+                <EmptyState message="No sessions yet — log your first ride" cta="Log Discharge" onCta={() => go("discharge")} />
+              )}
+            </Card>
+            <Card title="Charging Rate" sub="avg %/hr · per charging session">
+              {rateBars.length ? (
+                <SessionBarChart data={rateBars} unit="%/hr" digits={1} />
+              ) : (
+                <EmptyState message="No sessions yet — log your first charge" cta="Log Charge" onCta={() => go("charge")} />
+              )}
+            </Card>
+          </div>
+        </div>
+      );
+    }
+
+    const inputCls =
+      "w-full bg-[#0D0F14] border border-[#232B38] px-3 py-2 text-sm text-[#E6EAF0] tabular-nums outline-none focus:border-[#00E5A0] placeholder:text-[#4A5264]";
+
+    function SessionForm({ type, onSave }) {
+      const isCharge = type === "charge";
+      const xLabel = isCharge ? "Time (min from start)" : "Distance (km)";
+      const [date, setDate] = useState(todayISO());
+      const [rows, setRows] = useState([
+        { x: "0", pct: "" },
+        { x: "", pct: "" },
+      ]);
+      const [error, setError] = useState("");
+
+      const setCell = (i, field, value) =>
+        setRows((r) => r.map((row, idx) => (idx === i ? { ...row, [field]: value } : row)));
+      const addRow = () => setRows((r) => [...r, { x: "", pct: "" }]);
+      const removeRow = (i) => setRows((r) => (r.length > 1 ? r.filter((_, idx) => idx !== i) : r));
+
+      const save = () => {
+        setError("");
+        if (!date) return setError("Pick a date.");
+        const parsed = [];
+        for (let i = 0; i < rows.length; i++) {
+          const { x, pct } = rows[i];
+          if (x.trim() === "" && pct.trim() === "") continue;
+          const xv = Number(x);
+          const pv = Number(pct);
+          if (!isFinite(xv) || xv < 0) return setError(`Row ${i + 1}: invalid ${isCharge ? "time" : "distance"}.`);
+          if (!isFinite(pv) || pv < 0 || pv > 100) return setError(`Row ${i + 1}: battery % must be 0–100.`);
+          parsed.push({ xv, pv });
+        }
+        if (parsed.length < 2) return setError("Need at least 2 data points.");
+        parsed.sort((a, b) => a.xv - b.xv);
+        const entries = parsed.map(({ xv, pv }) =>
+          isCharge ? { time_min: xv, percentage: pv } : { distance_km: xv, percentage: pv }
+        );
+        onSave({ id: uid(), date, entries });
+      };
+
+      return (
+        <Card
+          title={isCharge ? "Log Charging Session" : "Log Discharging Session"}
+          sub={isCharge ? "battery % at minutes from plug-in" : "battery % at odometer distance"}
+          className="max-w-2xl"
+        >
+          <div className="space-y-4">
+            <div>
+              <label className="mb-1 block text-[10px] uppercase tracking-[0.18em] text-[#8B93A7]">Date</label>
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls + " max-w-xs"} />
+            </div>
+
+            <div>
+              <div className="grid grid-cols-[1fr_1fr_2.5rem] gap-2 border-b border-[#1E2530] pb-1 text-[10px] uppercase tracking-[0.18em] text-[#8B93A7]">
+                <span>{xLabel}</span>
+                <span>Battery %</span>
+                <span />
+              </div>
+              <div className="mt-2 space-y-2">
+                {rows.map((row, i) => (
+                  <div key={i} className="grid grid-cols-[1fr_1fr_2.5rem] gap-2">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step="any"
+                      min="0"
+                      placeholder={isCharge ? "min" : "km"}
+                      value={row.x}
+                      onChange={(e) => setCell(i, "x", e.target.value)}
+                      className={inputCls}
+                    />
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step="any"
+                      min="0"
+                      max="100"
+                      placeholder="%"
+                      value={row.pct}
+                      onChange={(e) => setCell(i, "pct", e.target.value)}
+                      className={inputCls}
+                    />
+                    <button
+                      onClick={() => removeRow(i)}
+                      title="Remove row"
+                      className="border border-[#232B38] text-[#8B93A7] hover:border-[#FF6B81] hover:text-[#FF6B81]"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={addRow}
+                className="mt-3 border border-[#232B38] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-widest text-[#8B93A7] hover:border-[#00E5A0] hover:text-[#00E5A0]"
+              >
+                + Add Row
+              </button>
+            </div>
+
+            {error && <p className="text-xs text-[#FF6B81]">{error}</p>}
+
+            <button
+              onClick={save}
+              className="bg-[#00E5A0] px-6 py-2.5 text-xs font-semibold uppercase tracking-widest text-[#0D0F14] hover:bg-[#00C98D]"
+            >
+              Save Session
+            </button>
+          </div>
+        </Card>
+      );
+    }
+
+    function History({ charging, discharging, onDelete, go }) {
+      const [selected, setSelected] = useState(null);
+
+      const rows = useMemo(() => {
+        const all = [
+          ...charging.map((s) => ({ type: "charge", session: s })),
+          ...discharging.map((s) => ({ type: "discharge", session: s })),
+        ];
+        return all.sort((a, b) => (a.session.date < b.session.date ? 1 : a.session.date > b.session.date ? -1 : 0));
+      }, [charging, discharging]);
+
+      if (!rows.length) {
+        return (
+          <Card title="Session History">
+            <EmptyState message="No sessions yet — log your first ride" cta="Log Discharge" onCta={() => go("discharge")} />
+          </Card>
+        );
+      }
+
+      if (selected) {
+        const { type, session } = selected;
+        const isCharge = type === "charge";
+        const e = session.entries;
+        const start = e[0], end = e[e.length - 1];
+        const span = isCharge
+          ? `${end.time_min - start.time_min} min`
+          : `${fmt(end.distance_km - start.distance_km, 1)} km`;
+        const rate = isCharge
+          ? `${fmt(chargeRatePerHr(session), 1)} %/hr`
+          : `${fmt(dischargeEfficiency(session), 2)} km/%`;
+        return (
+          <Card
+            title={`${isCharge ? "Charging" : "Discharging"} · ${fmtDate(session.date)}`}
+            sub={`${e.length} data points`}
+            right={
+              <button onClick={() => setSelected(null)} className="text-[#00E5A0] hover:underline uppercase tracking-widest">
+                ← Back
+              </button>
+            }
+          >
+            <div className="mb-4 grid grid-cols-2 gap-px bg-[#1E2530] border border-[#1E2530] sm:grid-cols-4">
+              {[
+                ["Start", `${start.percentage}%`],
+                ["End", `${end.percentage}%`],
+                [isCharge ? "Duration" : "Distance", span],
+                [isCharge ? "Avg Rate" : "Efficiency", rate],
+              ].map(([k, v]) => (
+                <div key={k} className="bg-[#161A22] p-3">
+                  <div className="text-[10px] uppercase tracking-[0.18em] text-[#8B93A7]">{k}</div>
+                  <div className="mt-1 text-sm font-semibold tabular-nums">{v}</div>
+                </div>
+              ))}
+            </div>
+            <SessionDetailChart session={session} type={type} />
+            <button
+              onClick={() => {
+                if (window.confirm("Delete this session? This cannot be undone.")) {
+                  onDelete(type, session.id);
+                  setSelected(null);
+                }
+              }}
+              className="mt-4 border border-[#FF6B81] px-4 py-2 text-[11px] font-semibold uppercase tracking-widest text-[#FF6B81] hover:bg-[#FF6B81] hover:text-[#0D0F14]"
+            >
+              Delete Session
+            </button>
+          </Card>
+        );
+      }
+
+      return (
+        <Card title="Session History" sub="click a row for detail">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] text-left text-sm tabular-nums">
+              <thead>
+                <tr className="border-b border-[#1E2530] text-[10px] uppercase tracking-[0.18em] text-[#8B93A7]">
+                  <th className="py-2 pr-4 font-semibold">Type</th>
+                  <th className="py-2 pr-4 font-semibold">Date</th>
+                  <th className="py-2 pr-4 font-semibold">Start %</th>
+                  <th className="py-2 pr-4 font-semibold">End %</th>
+                  <th className="py-2 pr-4 font-semibold">Duration / Distance</th>
+                  <th className="py-2 font-semibold">Avg Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(({ type, session }) => {
+                  const isCharge = type === "charge";
+                  const e = session.entries;
+                  const start = e[0], end = e[e.length - 1];
+                  return (
+                    <tr
+                      key={session.id}
+                      onClick={() => setSelected({ type, session })}
+                      className="cursor-pointer border-b border-[#1E2530] hover:bg-[#1A1F2A]"
+                    >
+                      <td className="py-2.5 pr-4">
+                        <span
+                          className={`border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                            isCharge ? "border-[#00E5A0] text-[#00E5A0]" : "border-[#FFB454] text-[#FFB454]"
+                          }`}
+                        >
+                          {isCharge ? "CHG" : "DIS"}
+                        </span>
+                      </td>
+                      <td className="py-2.5 pr-4">{fmtDate(session.date)}</td>
+                      <td className="py-2.5 pr-4">{start.percentage}%</td>
+                      <td className="py-2.5 pr-4">{end.percentage}%</td>
+                      <td className="py-2.5 pr-4">
+                        {isCharge
+                          ? `${end.time_min - start.time_min} min`
+                          : `${fmt(end.distance_km - start.distance_km, 1)} km`}
+                      </td>
+                      <td className="py-2.5">
+                        {isCharge
+                          ? `${fmt(chargeRatePerHr(session), 1)} %/hr`
+                          : `${fmt(dischargeEfficiency(session), 2)} km/%`}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      );
+    }
+
+    /* ================= app shell ================= */
+    const TABS = [
+      { id: "dashboard", label: "Dashboard" },
+      { id: "charge", label: "Log Charge" },
+      { id: "discharge", label: "Log Discharge" },
+      { id: "history", label: "History" },
+    ];
+
+    function App() {
+      const [page, setPage] = useState("dashboard");
+      const [charging, setCharging] = useState(() => {
+        seedIfNeeded();
+        return loadStore(LS_CHARGE);
+      });
+      const [discharging, setDischarging] = useState(() => loadStore(LS_DISCHARGE));
+
+      useEffect(() => saveStore(LS_CHARGE, charging), [charging]);
+      useEffect(() => saveStore(LS_DISCHARGE, discharging), [discharging]);
+
+      const saveCharge = (s) => {
+        setCharging((prev) => [...prev, s]);
+        setPage("dashboard");
+      };
+      const saveDischarge = (s) => {
+        setDischarging((prev) => [...prev, s]);
+        setPage("dashboard");
+      };
+      const deleteSession = (type, id) => {
+        if (type === "charge") setCharging((prev) => prev.filter((s) => s.id !== id));
+        else setDischarging((prev) => prev.filter((s) => s.id !== id));
+      };
+
+      return (
+        <div className="min-h-screen bg-[#0D0F14]">
+          <header className="sticky top-0 z-10 border-b border-[#1E2530] bg-[#0D0F14]/95 backdrop-blur">
+            <div className="mx-auto flex max-w-6xl items-stretch gap-5 overflow-x-auto px-4">
+              <div className="flex items-center gap-1.5 whitespace-nowrap py-3">
+                <svg width="14" height="14" viewBox="0 0 32 32" aria-hidden="true">
+                  <path d="M18 4 8 18h6l-2 10L22 14h-6z" fill="#00E5A0" />
+                </svg>
+                <span className="text-sm font-bold tracking-[0.25em] text-[#00E5A0]">ATHER LOG</span>
+              </div>
+              <nav className="flex items-stretch gap-1">
+                {TABS.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setPage(t.id)}
+                    className={`whitespace-nowrap border-b-2 px-3 text-[11px] font-semibold uppercase tracking-widest ${
+                      page === t.id
+                        ? "border-[#00E5A0] text-[#E6EAF0]"
+                        : "border-transparent text-[#8B93A7] hover:text-[#E6EAF0]"
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </nav>
+            </div>
+          </header>
+
+          <main className="mx-auto max-w-6xl px-4 py-5">
+            {page === "dashboard" && <Dashboard charging={charging} discharging={discharging} go={setPage} />}
+            {page === "charge" && <SessionForm type="charge" onSave={saveCharge} />}
+            {page === "discharge" && <SessionForm type="discharge" onSave={saveDischarge} />}
+            {page === "history" && (
+              <History charging={charging} discharging={discharging} onDelete={deleteSession} go={setPage} />
+            )}
+          </main>
+
+          <footer className="mx-auto max-w-6xl px-4 pb-6 text-[10px] uppercase tracking-widest text-[#4A5264]">
+            Ather 450X · data stored locally in your browser
+          </footer>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
