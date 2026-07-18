@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0D0F14" />
   <title>Ather Log</title>
+  <!-- standalone build v2 -->
+
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20fill='%230D0F14'/%3E%3Cpath%20d='M18%204%208%2018h6l-2%2010L22%2014h-6z'%20fill='%2300E5A0'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -60,7 +62,7 @@
     /* ================= storage ================= */
     const LS_CHARGE = "atherlog_charging";
     const LS_DISCHARGE = "atherlog_discharging";
-    const LS_SEEDED = "atherlog_seeded_v1";
+    const LS_SEEDED = "atherlog_seeded_v2";
 
     const SEED_CHARGING = [
       {
@@ -78,6 +80,13 @@
           [0, 61], [25, 68], [70, 81], [95, 89], [137, 100],
         ].map(([t, p]) => ({ time_min: t, percentage: p })),
       },
+      {
+        id: "seed-charge-3",
+        date: "2026-07-17",
+        entries: [
+          [0, 41], [33, 51], [78, 64],
+        ].map(([t, p]) => ({ time_min: t, percentage: p })),
+      },
     ];
 
     const SEED_DISCHARGING = [
@@ -88,13 +97,25 @@
           [0, 94], [27, 75], [47.4, 61],
         ].map(([d, p]) => ({ distance_km: d, percentage: p })),
       },
+      {
+        id: "seed-discharge-2",
+        date: "2026-07-18",
+        entries: [
+          [0, 99], [28, 76], [47.8, 59], [74.4, 41],
+        ].map(([d, p]) => ({ distance_km: d, percentage: p })),
+      },
     ];
 
     function seedIfNeeded() {
       try {
         if (localStorage.getItem(LS_SEEDED)) return;
-        if (!localStorage.getItem(LS_CHARGE)) localStorage.setItem(LS_CHARGE, JSON.stringify(SEED_CHARGING));
-        if (!localStorage.getItem(LS_DISCHARGE)) localStorage.setItem(LS_DISCHARGE, JSON.stringify(SEED_DISCHARGING));
+        // load new seed set; replace any old seed-* sessions but keep user-logged ones
+        const merge = (key, seed) => {
+          const user = loadStore(key).filter((s) => !String(s.id).startsWith("seed-"));
+          localStorage.setItem(key, JSON.stringify([...seed, ...user]));
+        };
+        merge(LS_CHARGE, SEED_CHARGING);
+        merge(LS_DISCHARGE, SEED_DISCHARGING);
         localStorage.setItem(LS_SEEDED, "1");
       } catch (e) { /* localStorage unavailable */ }
     }
